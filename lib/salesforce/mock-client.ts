@@ -19,16 +19,40 @@ interface CaseLink {
 
 // The seed records are immutable; the only mutable state is the case
 // counter and the feedbackId -> Case link. Storage backends:
-// - Vercel KV when KV_REST_API_URL is set (Vercel runs route handlers as
-//   separate serverless functions with no shared memory). Uses atomic
-//   primitives: INCR for unique Case ids and SET NX per feedback record,
-//   so concurrent requests cannot duplicate ids or Cases.
+// - Vercel KV when configured (Vercel runs route handlers as separate
+//   serverless functions with no shared memory). Redis INCR guarantees
+//   unique, sequential Case IDs and SET NX prevents overwriting an
+//   existing feedback-to-Case link. These primitives do NOT make the
+//   whole create-and-link workflow atomic: two concurrent requests may
+//   mint different Case IDs, but only one can establish the association.
+//   This limitation is deliberately accepted for a lightweight mock.
 // - globalThis locally: survives Turbopack module re-instantiation (HMR,
 //   per-route graphs) and keeps local dev zero-config.
 const KV_CASE_COUNTER_KEY = "mindspace:mock:case-counter";
 const KV_CASE_LINK_PREFIX = "mindspace:mock:case:";
 
-const useKv = Boolean(process.env.KV_REST_API_URL);
+// Backend selection. On Vercel (VERCEL=1) both KV variables are required
+// — a silent in-memory fallback would lose state between functions.
+// A partially configured pair fails fast anywhere, as it is almost always
+// a setup mistake. Only variable names appear in errors, never values.
+function resolveBackend(): "kv" | "memory" {
+  const hasUrl = Boolean(process.env.KV_REST_API_URL);
+  const hasToken = Boolean(process.env.KV_REST_API_TOKEN);
+
+  if (hasUrl && hasToken) {
+    return "kv";
+  }
+
+  if (process.env.VERCEL === "1" || hasUrl !== hasToken) {
+    throw new Error(
+      "Mock storage misconfiguration: KV_REST_API_URL and KV_REST_API_TOKEN must both be set. They are required when running on Vercel."
+    );
+  }
+
+  return "memory";
+}
+
+const backend = resolveBackend();
 
 const seedResponse = mockResponse as SalesforceQueryResponse<
   SalesforceFeedbackRecord
@@ -60,7 +84,7 @@ function caseNumberFromId(caseId: string): string {
 // Atomic counter: Redis INCR server-side, or a synchronous in-memory
 // increment (no await between read and write, so it cannot interleave).
 async function nextCaseId(): Promise<string> {
-  if (useKv) {
+  if (backend === "kv") {
     return formatCaseId(await kv.incr(KV_CASE_COUNTER_KEY));
   }
 
@@ -70,7 +94,7 @@ async function nextCaseId(): Promise<string> {
 }
 
 async function getCaseLinks(): Promise<Record<string, CaseLink>> {
-  if (useKv) {
+  if (backend === "kv") {
     const ids = seedResponse.records.map((record) => record.Id);
     const values = await kv.mget<(CaseLink | null)[]>(
       ...ids.map((id) => KV_CASE_LINK_PREFIX + id)
@@ -94,7 +118,7 @@ async function trySetCaseLink(
   feedbackId: string,
   link: CaseLink
 ): Promise<boolean> {
-  if (useKv) {
+  if (backend === "kv") {
     const result = await kv.set(KV_CASE_LINK_PREFIX + feedbackId, link, {
       nx: true,
     });

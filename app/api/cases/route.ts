@@ -57,7 +57,7 @@ export async function POST(request: Request) {
   }
 
   try {
-    const result = await createCaseFromFeedback(feedbackId);
+    const result = await createCaseFromFeedback(feedbackId.trim());
 
     return Response.json(result, { status: 201 });
   } catch (error) {

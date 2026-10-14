@@ -51,6 +51,8 @@ describe("MockSalesforceClient (in-memory)", () => {
     vi.resetModules();
     // Exercise the in-memory backend, never real KV.
     delete process.env.KV_REST_API_URL;
+    delete process.env.KV_REST_API_TOKEN;
+    delete process.env.VERCEL;
     delete (globalThis as { __mockSalesforceState?: unknown })
       .__mockSalesforceState;
     ({ MockSalesforceClient } = await import("./mock-client"));
@@ -179,12 +181,15 @@ describe("MockSalesforceClient (Vercel KV)", () => {
     vi.clearAllMocks();
     redisState.counters.clear();
     redisState.values.clear();
+    delete process.env.VERCEL;
     process.env.KV_REST_API_URL = "https://kv.example.test";
+    process.env.KV_REST_API_TOKEN = "test-token";
     ({ MockSalesforceClient } = await import("./mock-client"));
   });
 
   afterEach(() => {
     delete process.env.KV_REST_API_URL;
+    delete process.env.KV_REST_API_TOKEN;
   });
 
   it("generates unique sequential Case IDs via Redis INCR", async () => {
@@ -261,5 +266,38 @@ describe("MockSalesforceClient (Vercel KV)", () => {
     expect(await kvFake.set("key", { a: 1 }, { nx: true })).toBe("OK");
     expect(await kvFake.set("key", { a: 2 }, { nx: true })).toBeNull();
     expect(await kvFake.mget("key", "missing")).toEqual([{ a: 1 }, null]);
+  });
+});
+
+describe("mock storage configuration", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    delete process.env.KV_REST_API_URL;
+    delete process.env.KV_REST_API_TOKEN;
+    delete process.env.VERCEL;
+  });
+
+  afterEach(() => {
+    delete process.env.VERCEL;
+  });
+
+  it("falls back to in-memory storage locally without KV config", async () => {
+    await expect(import("./mock-client")).resolves.toBeDefined();
+  });
+
+  it("throws a clear configuration error on Vercel without KV config", async () => {
+    process.env.VERCEL = "1";
+
+    await expect(import("./mock-client")).rejects.toThrow(
+      "KV_REST_API_URL and KV_REST_API_TOKEN"
+    );
+  });
+
+  it("throws on partially configured KV credentials", async () => {
+    process.env.KV_REST_API_URL = "https://kv.example.test";
+
+    await expect(import("./mock-client")).rejects.toThrow(
+      "KV_REST_API_URL and KV_REST_API_TOKEN"
+    );
   });
 });
