@@ -2,7 +2,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { MemberFeedback, FeedbackApiResponse } from "@/lib/types";
+import type {
+  MemberFeedback,
+  FeedbackApiResponse,
+  CreateCaseResponse,
+} from "@/lib/types";
 import { KpiCard } from "@/components/dashboard/KpiCard";
 import { FeedbackFilters } from "@/components/dashboard/FeedbackFilters";
 import { FeedbackTable } from "@/components/dashboard/FeedbackTable";
@@ -108,23 +112,36 @@ export default function Home() {
         body: JSON.stringify({ feedbackId }),
       });
 
-      const result = await response.json();
+      const result = (await response.json()) as Partial<CreateCaseResponse> & {
+        error?: { message?: string };
+      };
 
-      if (!response.ok || !result.success || !result.caseId) {
+      if (!response.ok) {
         throw new Error(result.error?.message ?? "Failed to create Case");
       }
 
+      if (
+        !result.success ||
+        typeof result.caseId !== "string" ||
+        !result.caseId ||
+        typeof result.caseNumber !== "string" ||
+        !result.caseNumber
+      ) {
+        throw new Error("Invalid API response");
+      }
+
+      const caseId: string = result.caseId;
+      const caseNumber: string = result.caseNumber;
+
       setFeedback((previous) =>
         previous.map((item) =>
-          item.id === feedbackId
-            ? { ...item, caseId: result.caseId, caseNumber: result.caseNumber }
-            : item
+          item.id === feedbackId ? { ...item, caseId, caseNumber } : item
         )
       );
 
       setNotice({
         type: "success",
-        text: `Case #${result.caseNumber} created successfully (mock).`,
+        text: `Case #${caseNumber} created successfully (mock).`,
       });
     } catch (err) {
       setNotice({

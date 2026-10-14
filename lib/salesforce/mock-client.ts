@@ -17,8 +17,10 @@ interface CaseLink {
   caseNumber: string;
 }
 
-// The seed records are immutable; the only mutable state is the case
-// counter and the feedbackId -> Case link. Storage backends:
+// The seed records are immutable; the mutable state is the case counter,
+// a registry of created Cases (ID -> CaseNumber, mirroring the independent
+// Auto Number field on the Case object), and the feedbackId -> Case links.
+// Storage backends:
 // - Vercel KV when configured (Vercel runs route handlers as separate
 //   serverless functions with no shared memory). Redis INCR guarantees
 //   unique, sequential Case IDs and SET NX prevents overwriting an
@@ -29,6 +31,7 @@ interface CaseLink {
 // - globalThis locally: survives Turbopack module re-instantiation (HMR,
 //   per-route graphs) and keeps local dev zero-config.
 const KV_CASE_COUNTER_KEY = "mindspace:mock:case-counter";
+const KV_CASE_NUMBERS_KEY = "mindspace:mock:case-numbers";
 const KV_CASE_LINK_PREFIX = "mindspace:mock:case:";
 
 // Backend selection. On Vercel (VERCEL=1) both KV variables are required
@@ -61,13 +64,18 @@ const seedResponse = mockResponse as SalesforceQueryResponse<
 const globalForMock = globalThis as unknown as {
   __mockSalesforceState?: {
     caseCounter: number;
+    caseNumbers: Record<string, string>;
     caseLinks: Record<string, CaseLink>;
   };
 };
 
 function getMemoryState() {
   if (!globalForMock.__mockSalesforceState) {
-    globalForMock.__mockSalesforceState = { caseCounter: 0, caseLinks: {} };
+    globalForMock.__mockSalesforceState = {
+      caseCounter: 0,
+      caseNumbers: {},
+      caseLinks: {},
+    };
   }
 
   return globalForMock.__mockSalesforceState;
@@ -77,20 +85,46 @@ function formatCaseId(n: number): string {
   return `500${String(n).padStart(12, "0")}AAA`;
 }
 
-function caseNumberFromId(caseId: string): string {
-  return String(Number(caseId.slice(3, 15))).padStart(8, "0");
+function formatCaseNumber(n: number): string {
+  return String(n).padStart(8, "0");
 }
 
-// Atomic counter: Redis INCR server-side, or a synchronous in-memory
-// increment (no await between read and write, so it cannot interleave).
-async function nextCaseId(): Promise<string> {
+// In real Salesforce, CaseNumber is an independent Auto Number field, not
+// a value parsed out of the record ID. The mock mirrors this: both
+// identifiers come from the same atomic counter value, each produced by
+// its own formatter, and the created Case is registered so its number can
+// be looked up by ID when linking feedback.
+async function registerCase(): Promise<CaseLink> {
+  let n: number;
+
   if (backend === "kv") {
-    return formatCaseId(await kv.incr(KV_CASE_COUNTER_KEY));
+    n = await kv.incr(KV_CASE_COUNTER_KEY);
+  } else {
+    const state = getMemoryState();
+    state.caseCounter += 1;
+    n = state.caseCounter;
   }
 
-  const state = getMemoryState();
-  state.caseCounter += 1;
-  return formatCaseId(state.caseCounter);
+  const created: CaseLink = {
+    caseId: formatCaseId(n),
+    caseNumber: formatCaseNumber(n),
+  };
+
+  if (backend === "kv") {
+    await kv.hset(KV_CASE_NUMBERS_KEY, { [created.caseId]: created.caseNumber });
+  } else {
+    getMemoryState().caseNumbers[created.caseId] = created.caseNumber;
+  }
+
+  return created;
+}
+
+async function lookupCaseNumber(caseId: string): Promise<string | null> {
+  if (backend === "kv") {
+    return kv.hget<string>(KV_CASE_NUMBERS_KEY, caseId);
+  }
+
+  return getMemoryState().caseNumbers[caseId] ?? null;
 }
 
 async function getCaseLinks(): Promise<Record<string, CaseLink>> {
@@ -186,8 +220,10 @@ export class MockSalesforceClient implements SalesforceClient {
       };
     }
 
+    const created = await registerCase();
+
     return {
-      id: await nextCaseId(),
+      id: created.caseId,
       success: true,
       errors: [],
     };
@@ -205,18 +241,19 @@ export class MockSalesforceClient implements SalesforceClient {
       throw new Error("FEEDBACK_NOT_FOUND");
     }
 
-    const link: CaseLink = {
-      caseId,
-      caseNumber: caseNumberFromId(caseId),
-    };
+    const caseNumber = await lookupCaseNumber(caseId);
 
-    const created = await trySetCaseLink(feedbackId, link);
+    if (!caseNumber) {
+      throw new Error("CASE_NOT_FOUND");
+    }
+
+    const created = await trySetCaseLink(feedbackId, { caseId, caseNumber });
 
     if (!created) {
       throw new Error("CASE_ALREADY_EXISTS");
     }
 
-    return { caseNumber: link.caseNumber };
+    return { caseNumber };
   }
 
   async clearFeedbackCases(): Promise<void> {
@@ -224,12 +261,13 @@ export class MockSalesforceClient implements SalesforceClient {
       const keys = seedResponse.records.map(
         (record) => KV_CASE_LINK_PREFIX + record.Id
       );
-      await kv.del(KV_CASE_COUNTER_KEY, ...keys);
+      await kv.del(KV_CASE_COUNTER_KEY, KV_CASE_NUMBERS_KEY, ...keys);
       return;
     }
 
     const state = getMemoryState();
     state.caseCounter = 0;
+    state.caseNumbers = {};
     state.caseLinks = {};
   }
 }

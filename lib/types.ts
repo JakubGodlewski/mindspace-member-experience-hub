@@ -28,4 +28,5 @@ export interface CreateCaseResponse {
   success: boolean;
   feedbackId: string;
   caseId: string;
+  caseNumber: string;
 }

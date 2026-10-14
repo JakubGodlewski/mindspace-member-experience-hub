@@ -29,6 +29,19 @@ const { kvFake, redisState } = vi.hoisted(() => {
     mget: vi.fn(async (...keys: string[]) =>
       keys.map((key) => redisState.values.get(key) ?? null)
     ),
+    hset: vi.fn(async (key: string, entries: Record<string, string>) => {
+      const existing =
+        (redisState.values.get(key) as Record<string, string> | undefined) ??
+        {};
+      redisState.values.set(key, { ...existing, ...entries });
+      return Object.keys(entries).length;
+    }),
+    hget: vi.fn(async (key: string, field: string) => {
+      const hash = redisState.values.get(key) as
+        | Record<string, string>
+        | undefined;
+      return hash?.[field] ?? null;
+    }),
     del: vi.fn(async (...keys: string[]) => {
       let removed = 0;
       for (const key of keys) {
@@ -145,7 +158,7 @@ describe("MockSalesforceClient (in-memory)", () => {
       const record = updated.records.find((r) => r.Id === feedback.Id);
 
       expect(record?.Case__c).toBe(created.id);
-      expect(record?.Case__r?.CaseNumber).toBeTruthy();
+      expect(record?.Case__r?.CaseNumber).toBe("00000001");
     });
 
     it("throws FEEDBACK_NOT_FOUND for an unknown feedback id", async () => {
@@ -156,21 +169,30 @@ describe("MockSalesforceClient (in-memory)", () => {
       ).rejects.toThrow("FEEDBACK_NOT_FOUND");
     });
 
+    it("throws CASE_NOT_FOUND for a Case ID the mock did not create", async () => {
+      const client = new MockSalesforceClient();
+      const { records } = await client.queryFeedback();
+
+      await expect(
+        client.updateFeedbackCase(records[0].Id, "500000000000999AAA")
+      ).rejects.toThrow("CASE_NOT_FOUND");
+    });
+
     it("rejects a second Case for the same feedback (atomic guard)", async () => {
       const client = new MockSalesforceClient();
       const { records } = await client.queryFeedback();
       const feedbackId = records[0].Id;
 
-      await client.updateFeedbackCase(feedbackId, "500000000000001AAA");
+      const first = await client.createCase(validCaseRequest);
+      await client.updateFeedbackCase(feedbackId, first.id);
 
+      const second = await client.createCase(validCaseRequest);
       await expect(
-        client.updateFeedbackCase(feedbackId, "500000000000002AAA")
+        client.updateFeedbackCase(feedbackId, second.id)
       ).rejects.toThrow("CASE_ALREADY_EXISTS");
 
       const { records: after } = await client.queryFeedback();
-      expect(
-        after.find((r) => r.Id === feedbackId)?.Case__c
-      ).toBe("500000000000001AAA");
+      expect(after.find((r) => r.Id === feedbackId)?.Case__c).toBe(first.id);
     });
   });
 
@@ -199,8 +221,11 @@ describe("MockSalesforceClient (in-memory)", () => {
       const { records: after } = await client.queryFeedback();
       expect(after.every((record) => record.Case__c === null)).toBe(true);
 
+      // The numbering sequence restarts after a reset.
       const next = await client.createCase(validCaseRequest);
       expect(next.id).toBe("500000000000001AAA");
+      const link = await client.updateFeedbackCase(records[0].Id, next.id);
+      expect(link.caseNumber).toBe("00000001");
     });
   });
 });
@@ -236,26 +261,47 @@ describe("MockSalesforceClient (Vercel KV)", () => {
     expect(kvFake.incr).toHaveBeenCalledWith("mindspace:mock:case-counter");
   });
 
+  it("generates Case Numbers independently from the same counter value", async () => {
+    const client = new MockSalesforceClient();
+    const { records } = await client.queryFeedback();
+
+    const first = await client.createCase(validCaseRequest);
+    const second = await client.createCase(validCaseRequest);
+
+    const firstLink = await client.updateFeedbackCase(records[0].Id, first.id);
+    const secondLink = await client.updateFeedbackCase(records[1].Id, second.id);
+
+    // Same counter source, independent formats — nothing is parsed from the ID.
+    expect(first.id).toMatch(/^500\d{12}AAA$/);
+    expect(firstLink.caseNumber).toBe("00000001");
+    expect(secondLink.caseNumber).toBe("00000002");
+    expect(kvFake.hset).toHaveBeenCalledWith("mindspace:mock:case-numbers", {
+      [first.id]: "00000001",
+    });
+  });
+
   it("SET NX prevents overwriting an existing feedback-to-Case link", async () => {
     const client = new MockSalesforceClient();
     const { records } = await client.queryFeedback();
     const feedbackId = records[0].Id;
 
-    await client.updateFeedbackCase(feedbackId, "500000000000001AAA");
+    const created = await client.createCase(validCaseRequest);
+    await client.updateFeedbackCase(feedbackId, created.id);
 
     expect(kvFake.set).toHaveBeenCalledWith(
       `mindspace:mock:case:${feedbackId}`,
-      { caseId: "500000000000001AAA", caseNumber: "00000001" },
+      { caseId: created.id, caseNumber: "00000001" },
       { nx: true }
     );
 
+    const second = await client.createCase(validCaseRequest);
     await expect(
-      client.updateFeedbackCase(feedbackId, "500000000000002AAA")
+      client.updateFeedbackCase(feedbackId, second.id)
     ).rejects.toThrow("CASE_ALREADY_EXISTS");
 
     // The original link is intact in the fake store.
     expect(redisState.values.get(`mindspace:mock:case:${feedbackId}`)).toEqual({
-      caseId: "500000000000001AAA",
+      caseId: created.id,
       caseNumber: "00000001",
     });
   });
@@ -265,14 +311,15 @@ describe("MockSalesforceClient (Vercel KV)", () => {
     const { records } = await client.queryFeedback();
     const target = records[0];
 
-    await client.updateFeedbackCase(target.Id, "500000000000007AAA");
+    const created = await client.createCase(validCaseRequest);
+    await client.updateFeedbackCase(target.Id, created.id);
 
     const { records: merged } = await client.queryFeedback();
     const linked = merged.find((record) => record.Id === target.Id);
 
     expect(kvFake.mget).toHaveBeenCalled();
-    expect(linked?.Case__c).toBe("500000000000007AAA");
-    expect(linked?.Case__r?.CaseNumber).toBe("00000007");
+    expect(linked?.Case__c).toBe(created.id);
+    expect(linked?.Case__r?.CaseNumber).toBe("00000001");
     // The remaining records stay untouched.
     expect(merged.filter((record) => record.Case__c)).toHaveLength(1);
   });
@@ -282,14 +329,15 @@ describe("MockSalesforceClient (Vercel KV)", () => {
     const { records } = await first.queryFeedback();
     const feedbackId = records[0].Id;
 
-    await first.updateFeedbackCase(feedbackId, "500000000000003AAA");
+    const created = await first.createCase(validCaseRequest);
+    await first.updateFeedbackCase(feedbackId, created.id);
 
     const second = new MockSalesforceClient();
     const { records: after } = await second.queryFeedback();
+    const linked = after.find((record) => record.Id === feedbackId);
 
-    expect(after.find((record) => record.Id === feedbackId)?.Case__c).toBe(
-      "500000000000003AAA"
-    );
+    expect(linked?.Case__c).toBe(created.id);
+    expect(linked?.Case__r?.CaseNumber).toBe("00000001");
   });
 
   it("clearFeedbackCases removes all links and resets the counter", async () => {
@@ -316,6 +364,9 @@ describe("MockSalesforceClient (Vercel KV)", () => {
     expect(await kvFake.set("key", { a: 1 }, { nx: true })).toBe("OK");
     expect(await kvFake.set("key", { a: 2 }, { nx: true })).toBeNull();
     expect(await kvFake.mget("key", "missing")).toEqual([{ a: 1 }, null]);
+    expect(await kvFake.hset("hash", { a: "1" })).toBe(1);
+    expect(await kvFake.hget("hash", "a")).toBe("1");
+    expect(await kvFake.hget("hash", "missing")).toBeNull();
   });
 });
 
