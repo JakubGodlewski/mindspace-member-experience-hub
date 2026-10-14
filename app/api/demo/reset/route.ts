@@ -1,6 +1,19 @@
 import { resetDemoData } from "@/lib/salesforce/feedback-service";
 
 export async function POST() {
+  // Demo-mode safety guard: resetting only makes sense against the mock.
+  if (process.env.SALESFORCE_MOCK_MODE !== "true") {
+    return Response.json(
+      {
+        error: {
+          code: "MOCK_MODE_DISABLED",
+          message: "Resetting demo data is only available in mock mode.",
+        },
+      },
+      { status: 403 }
+    );
+  }
+
   try {
     await resetDemoData();
 

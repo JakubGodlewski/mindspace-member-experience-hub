@@ -6,6 +6,7 @@ interface FeedbackTableProps {
   feedback: MemberFeedback[];
   totalCount: number;
   creatingCaseId: string | null;
+  busy?: boolean;
   onCreateCase: (feedbackId: string) => void;
 }
 
@@ -13,6 +14,7 @@ export function FeedbackTable({
   feedback,
   totalCount,
   creatingCaseId,
+  busy = false,
   onCreateCase,
 }: FeedbackTableProps) {
   return (
@@ -82,7 +84,7 @@ export function FeedbackTable({
                     ) : item.score <= 2 ? (
                       <button
                         onClick={() => onCreateCase(item.id)}
-                        disabled={creatingCaseId !== null}
+                        disabled={creatingCaseId !== null || busy}
                         className="rounded-lg bg-blue-600 px-4 py-2 font-medium text-white hover:bg-blue-700 disabled:opacity-50"
                       >
                         {creatingCaseId === item.id

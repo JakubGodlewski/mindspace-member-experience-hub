@@ -23,32 +23,29 @@ export default function Home() {
     text: string;
   } | null>(null);
 
-  useEffect(() => {
-    async function loadFeedback() {
-      try {
-        const response = await fetch("/api/feedback", { cache: "no-store" });
+  async function fetchFeedback(): Promise<MemberFeedback[]> {
+    const response = await fetch("/api/feedback", { cache: "no-store" });
 
-        if (!response.ok) {
-          throw new Error("Failed to load feedback");
-        }
-
-        const result: FeedbackApiResponse = await response.json();
-
-        if (!result.success || !Array.isArray(result.data)) {
-          throw new Error("Invalid API response");
-        }
-
-        setFeedback(result.data);
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Unexpected error"
-        );
-      } finally {
-        setLoading(false);
-      }
+    if (!response.ok) {
+      throw new Error("Failed to load feedback");
     }
 
-    void loadFeedback();
+    const result: FeedbackApiResponse = await response.json();
+
+    if (!result.success || !Array.isArray(result.data)) {
+      throw new Error("Invalid API response");
+    }
+
+    return result.data;
+  }
+
+  useEffect(() => {
+    fetchFeedback()
+      .then(setFeedback)
+      .catch((err) =>
+        setError(err instanceof Error ? err.message : "Unexpected error")
+      )
+      .finally(() => setLoading(false));
   }, []);
 
   const locations = useMemo(
@@ -138,6 +135,14 @@ export default function Home() {
   }
 
   async function handleResetDemoData() {
+    const confirmed = window.confirm(
+      "Reset demo data? All mock Case associations and the Case counter will be reset."
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
     setResetting(true);
     setNotice(null);
 
@@ -149,9 +154,13 @@ export default function Home() {
         throw new Error(result.error?.message ?? "Failed to reset demo data");
       }
 
-      setFeedback((previous) =>
-        previous.map((item) => ({ ...item, caseId: null }))
-      );
+      try {
+        setFeedback(await fetchFeedback());
+      } catch {
+        throw new Error(
+          "Demo data was reset, but refreshing the dashboard failed. Please reload the page."
+        );
+      }
 
       setNotice({
         type: "success",
@@ -244,6 +253,7 @@ export default function Home() {
         feedback={filteredFeedback}
         totalCount={feedback.length}
         creatingCaseId={creatingCaseId}
+        busy={resetting}
         onCreateCase={(feedbackId) => void handleCreateCase(feedbackId)}
       />
 
