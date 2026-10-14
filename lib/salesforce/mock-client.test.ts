@@ -134,7 +134,9 @@ describe("MockSalesforceClient (in-memory)", () => {
       expect(feedback.Case__c).toBeNull();
 
       const created = await client.createCase(validCaseRequest);
-      await client.updateFeedbackCase(feedback.Id, created.id);
+      const link = await client.updateFeedbackCase(feedback.Id, created.id);
+
+      expect(link).toEqual({ caseNumber: "00000001" });
 
       // A new client instance must see the same state,
       // because the factory creates one per request.

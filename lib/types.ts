@@ -10,6 +10,7 @@ export interface MemberFeedback {
   comment: string;
   submittedAt: string;
   caseId: string | null;
+  caseNumber: string | null;
 }
 
 export interface FeedbackApiResponse {

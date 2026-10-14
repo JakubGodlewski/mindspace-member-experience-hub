@@ -116,13 +116,15 @@ export default function Home() {
 
       setFeedback((previous) =>
         previous.map((item) =>
-          item.id === feedbackId ? { ...item, caseId: result.caseId } : item
+          item.id === feedbackId
+            ? { ...item, caseId: result.caseId, caseNumber: result.caseNumber }
+            : item
         )
       );
 
       setNotice({
         type: "success",
-        text: `Case ${result.caseId} created successfully (mock).`,
+        text: `Case #${result.caseNumber} created successfully (mock).`,
       });
     } catch (err) {
       setNotice({

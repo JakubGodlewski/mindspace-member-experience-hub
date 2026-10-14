@@ -27,6 +27,7 @@ beforeEach(() => {
   createCaseFromFeedback.mockResolvedValue({
     feedbackId: FEEDBACK_ID,
     caseId: "500000000000001AAA",
+    caseNumber: "00000001",
     success: true,
   });
 });
@@ -43,6 +44,7 @@ describe("POST /api/cases", () => {
     await expect(response.json()).resolves.toEqual({
       feedbackId: FEEDBACK_ID,
       caseId: "500000000000001AAA",
+      caseNumber: "00000001",
       success: true,
     });
     expect(createCaseFromFeedback).toHaveBeenCalledWith(FEEDBACK_ID);

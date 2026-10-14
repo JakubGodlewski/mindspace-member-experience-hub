@@ -196,7 +196,7 @@ export class MockSalesforceClient implements SalesforceClient {
   async updateFeedbackCase(
     feedbackId: string,
     caseId: string
-  ): Promise<void> {
+  ): Promise<{ caseNumber: string }> {
     const exists = seedResponse.records.some(
       (record) => record.Id === feedbackId
     );
@@ -205,14 +205,18 @@ export class MockSalesforceClient implements SalesforceClient {
       throw new Error("FEEDBACK_NOT_FOUND");
     }
 
-    const created = await trySetCaseLink(feedbackId, {
+    const link: CaseLink = {
       caseId,
       caseNumber: caseNumberFromId(caseId),
-    });
+    };
+
+    const created = await trySetCaseLink(feedbackId, link);
 
     if (!created) {
       throw new Error("CASE_ALREADY_EXISTS");
     }
+
+    return { caseNumber: link.caseNumber };
   }
 
   async clearFeedbackCases(): Promise<void> {

@@ -55,7 +55,7 @@ beforeEach(() => {
     success: true,
     errors: [],
   });
-  fakeClient.updateFeedbackCase.mockResolvedValue(undefined);
+  fakeClient.updateFeedbackCase.mockResolvedValue({ caseNumber: "00000001" });
   fakeClient.clearFeedbackCases.mockResolvedValue(undefined);
 });
 
@@ -146,6 +146,9 @@ describe("createCaseFromFeedback", () => {
       success: true,
       errors: [],
     });
+    fakeClient.updateFeedbackCase.mockResolvedValue({
+      caseNumber: "00000042",
+    });
 
     const result = await createCaseFromFeedback(feedback.Id);
 
@@ -165,6 +168,7 @@ describe("createCaseFromFeedback", () => {
     expect(result).toEqual({
       feedbackId: feedback.Id,
       caseId: "500000000000042AAA",
+      caseNumber: "00000042",
       success: true,
     });
   });

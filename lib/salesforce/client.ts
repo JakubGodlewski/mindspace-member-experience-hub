@@ -20,7 +20,7 @@ export interface SalesforceClient {
   updateFeedbackCase(
     feedbackId: string,
     caseId: string
-  ): Promise<void>;
+  ): Promise<{ caseNumber: string }>;
 
   clearFeedbackCases(): Promise<void>;
 }

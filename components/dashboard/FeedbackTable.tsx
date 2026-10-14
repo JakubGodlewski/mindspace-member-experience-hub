@@ -79,7 +79,9 @@ export function FeedbackTable({
                         <span className="font-medium text-green-700">
                           Case Created
                         </span>
-                        <div className="text-xs text-gray-500">{caseId}</div>
+                        <div className="text-xs text-gray-500">
+                          {item.caseNumber ? `Case #${item.caseNumber}` : caseId}
+                        </div>
                       </div>
                     ) : item.score <= 2 ? (
                       <button

@@ -16,5 +16,6 @@ export function mapFeedback(
     comment: record.Comment__c,
     submittedAt: record.Submitted_At__c,
     caseId: record.Case__c,
+    caseNumber: record.Case__r?.CaseNumber ?? null,
   };
 }

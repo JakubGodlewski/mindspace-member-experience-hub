@@ -62,11 +62,15 @@ export async function createCaseFromFeedback(
   // If this update fails, the created Case ID is burned (in a real org it
   // would be an orphaned Case). Concurrent duplicates are still rejected
   // atomically by the client's link guard.
-  await client.updateFeedbackCase(feedbackId, response.id);
+  const { caseNumber } = await client.updateFeedbackCase(
+    feedbackId,
+    response.id
+  );
 
   return {
     feedbackId,
     caseId: response.id,
+    caseNumber,
     success: true,
   };
 }
