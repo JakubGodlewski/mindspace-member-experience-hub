@@ -8,12 +8,15 @@ export async function GET() {
     const client = createSalesforceClient();
     const response = await client.queryFeedback();
 
-    return Response.json({
-      success: true,
-      source: "salesforce-mock",
-      count: response.records.length,
-      data: response.records.map(mapFeedback),
-    });
+    return Response.json(
+      {
+        success: true,
+        source: "salesforce-mock",
+        count: response.records.length,
+        data: response.records.map(mapFeedback),
+      },
+      { headers: { "Cache-Control": "no-store" } }
+    );
   } catch (error) {
     console.error("Salesforce integration error:", error);
 
