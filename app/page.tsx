@@ -17,6 +17,7 @@ export default function Home() {
   const [rating, setRating] = useState("All");
 
   const [creatingCaseId, setCreatingCaseId] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
   const [notice, setNotice] = useState<{
     type: "success" | "error";
     text: string;
@@ -136,6 +137,36 @@ export default function Home() {
     }
   }
 
+  async function handleResetDemoData() {
+    setResetting(true);
+    setNotice(null);
+
+    try {
+      const response = await fetch("/api/demo/reset", { method: "POST" });
+      const result = await response.json();
+
+      if (!response.ok || !result.success) {
+        throw new Error(result.error?.message ?? "Failed to reset demo data");
+      }
+
+      setFeedback((previous) =>
+        previous.map((item) => ({ ...item, caseId: null }))
+      );
+
+      setNotice({
+        type: "success",
+        text: "Demo data has been reset. All mock Case links were removed.",
+      });
+    } catch (err) {
+      setNotice({
+        type: "error",
+        text: err instanceof Error ? err.message : "Unexpected error",
+      });
+    } finally {
+      setResetting(false);
+    }
+  }
+
   if (loading) {
     return (
       <main className="mx-auto max-w-7xl p-8">
@@ -164,9 +195,19 @@ export default function Home() {
           </p>
         </div>
 
-        <span className="rounded-full bg-green-100 px-4 py-2 text-sm font-medium text-green-800">
-          Salesforce Mock
-        </span>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => void handleResetDemoData()}
+            disabled={resetting || creatingCaseId !== null}
+            className="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+          >
+            {resetting ? "Resetting..." : "Reset Demo Data"}
+          </button>
+
+          <span className="rounded-full bg-green-100 px-4 py-2 text-sm font-medium text-green-800">
+            Salesforce Mock
+          </span>
+        </div>
       </header>
 
       <section className="mb-8 grid gap-4 md:grid-cols-3">

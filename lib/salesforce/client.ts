@@ -21,4 +21,6 @@ export interface SalesforceClient {
     feedbackId: string,
     caseId: string
   ): Promise<void>;
+
+  clearFeedbackCases(): Promise<void>;
 }

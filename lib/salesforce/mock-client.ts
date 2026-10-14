@@ -214,4 +214,18 @@ export class MockSalesforceClient implements SalesforceClient {
       throw new Error("CASE_ALREADY_EXISTS");
     }
   }
+
+  async clearFeedbackCases(): Promise<void> {
+    if (backend === "kv") {
+      const keys = seedResponse.records.map(
+        (record) => KV_CASE_LINK_PREFIX + record.Id
+      );
+      await kv.del(KV_CASE_COUNTER_KEY, ...keys);
+      return;
+    }
+
+    const state = getMemoryState();
+    state.caseCounter = 0;
+    state.caseLinks = {};
+  }
 }

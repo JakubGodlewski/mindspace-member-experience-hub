@@ -29,6 +29,18 @@ const { kvFake, redisState } = vi.hoisted(() => {
     mget: vi.fn(async (...keys: string[]) =>
       keys.map((key) => redisState.values.get(key) ?? null)
     ),
+    del: vi.fn(async (...keys: string[]) => {
+      let removed = 0;
+      for (const key of keys) {
+        if (redisState.values.delete(key)) {
+          removed += 1;
+        }
+        if (redisState.counters.delete(key)) {
+          removed += 1;
+        }
+      }
+      return removed;
+    }),
   };
 
   return { kvFake, redisState };
@@ -171,6 +183,24 @@ describe("MockSalesforceClient (in-memory)", () => {
       expect(second.records[0].Case__c).toBeNull();
     });
   });
+
+  describe("clearFeedbackCases", () => {
+    it("removes all Case links and resets the ID counter", async () => {
+      const client = new MockSalesforceClient();
+      const { records } = await client.queryFeedback();
+
+      const created = await client.createCase(validCaseRequest);
+      await client.updateFeedbackCase(records[0].Id, created.id);
+
+      await client.clearFeedbackCases();
+
+      const { records: after } = await client.queryFeedback();
+      expect(after.every((record) => record.Case__c === null)).toBe(true);
+
+      const next = await client.createCase(validCaseRequest);
+      expect(next.id).toBe("500000000000001AAA");
+    });
+  });
 });
 
 describe("MockSalesforceClient (Vercel KV)", () => {
@@ -258,6 +288,24 @@ describe("MockSalesforceClient (Vercel KV)", () => {
     expect(after.find((record) => record.Id === feedbackId)?.Case__c).toBe(
       "500000000000003AAA"
     );
+  });
+
+  it("clearFeedbackCases removes all links and resets the counter", async () => {
+    const client = new MockSalesforceClient();
+    const { records } = await client.queryFeedback();
+
+    const created = await client.createCase(validCaseRequest);
+    await client.updateFeedbackCase(records[0].Id, created.id);
+
+    await client.clearFeedbackCases();
+
+    expect(kvFake.del).toHaveBeenCalled();
+
+    const { records: after } = await client.queryFeedback();
+    expect(after.every((record) => record.Case__c === null)).toBe(true);
+
+    const next = await client.createCase(validCaseRequest);
+    expect(next.id).toBe("500000000000001AAA");
   });
 
   it("the fake reproduces kv return values (incr/set/mget)", async () => {

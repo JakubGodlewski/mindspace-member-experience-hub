@@ -6,6 +6,7 @@ const { fakeClient } = vi.hoisted(() => ({
     queryFeedback: vi.fn(),
     createCase: vi.fn(),
     updateFeedbackCase: vi.fn(),
+    clearFeedbackCases: vi.fn(),
   },
 }));
 
@@ -13,7 +14,7 @@ vi.mock("./client-factory", () => ({
   createSalesforceClient: () => fakeClient,
 }));
 
-import { createCaseFromFeedback } from "./feedback-service";
+import { createCaseFromFeedback, resetDemoData } from "./feedback-service";
 
 function buildFeedbackRecord(
   overrides: Partial<SalesforceFeedbackRecord> = {}
@@ -55,6 +56,7 @@ beforeEach(() => {
     errors: [],
   });
   fakeClient.updateFeedbackCase.mockResolvedValue(undefined);
+  fakeClient.clearFeedbackCases.mockResolvedValue(undefined);
 });
 
 describe("createCaseFromFeedback", () => {
@@ -165,5 +167,13 @@ describe("createCaseFromFeedback", () => {
       caseId: "500000000000042AAA",
       success: true,
     });
+  });
+});
+
+describe("resetDemoData", () => {
+  it("clears all feedback-to-Case links via the client", async () => {
+    await resetDemoData();
+
+    expect(fakeClient.clearFeedbackCases).toHaveBeenCalledTimes(1);
   });
 });

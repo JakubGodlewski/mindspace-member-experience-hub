@@ -70,3 +70,8 @@ export async function createCaseFromFeedback(
     success: true,
   };
 }
+
+export async function resetDemoData() {
+  const client = createSalesforceClient();
+  await client.clearFeedbackCases();
+}
