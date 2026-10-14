@@ -17,7 +17,6 @@ export default function Home() {
   const [rating, setRating] = useState("All");
 
   const [creatingCaseId, setCreatingCaseId] = useState<string | null>(null);
-  const [createdCases, setCreatedCases] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<{
     type: "success" | "error";
     text: string;
@@ -26,7 +25,7 @@ export default function Home() {
   useEffect(() => {
     async function loadFeedback() {
       try {
-        const response = await fetch("/api/feedback");
+        const response = await fetch("/api/feedback", { cache: "no-store" });
 
         if (!response.ok) {
           throw new Error("Failed to load feedback");
@@ -114,13 +113,14 @@ export default function Home() {
       const result = await response.json();
 
       if (!response.ok || !result.success || !result.caseId) {
-        throw new Error(result.error ?? "Failed to create Case");
+        throw new Error(result.error?.message ?? "Failed to create Case");
       }
 
-      setCreatedCases((previous) => ({
-        ...previous,
-        [feedbackId]: result.caseId,
-      }));
+      setFeedback((previous) =>
+        previous.map((item) =>
+          item.id === feedbackId ? { ...item, caseId: result.caseId } : item
+        )
+      );
 
       setNotice({
         type: "success",
@@ -202,14 +202,14 @@ export default function Home() {
       <FeedbackTable
         feedback={filteredFeedback}
         totalCount={feedback.length}
-        createdCases={createdCases}
         creatingCaseId={creatingCaseId}
         onCreateCase={(feedbackId) => void handleCreateCase(feedbackId)}
       />
 
       <p className="mt-5 text-xs text-gray-500">
-        Demo mode: Case creation is simulated by an in-memory mock and resets
-        when the server restarts.
+        Demo mode: Salesforce operations are simulated — no real Salesforce
+        organization is connected. Mock Case associations are persisted in the
+        deployed environment using Redis/KV.
       </p>
     </main>
   );

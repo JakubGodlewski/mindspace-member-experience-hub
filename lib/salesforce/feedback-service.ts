@@ -58,6 +58,10 @@ export async function createCaseFromFeedback(
     );
   }
 
+  // Trade-off: Case creation and the Feedback link update are not atomic.
+  // If this update fails, the created Case ID is burned (in a real org it
+  // would be an orphaned Case). Concurrent duplicates are still rejected
+  // atomically by the client's link guard.
   await client.updateFeedbackCase(feedbackId, response.id);
 
   return {

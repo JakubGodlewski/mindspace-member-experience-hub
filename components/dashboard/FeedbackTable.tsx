@@ -5,7 +5,6 @@ import type { MemberFeedback } from "@/lib/types";
 interface FeedbackTableProps {
   feedback: MemberFeedback[];
   totalCount: number;
-  createdCases: Record<string, string>;
   creatingCaseId: string | null;
   onCreateCase: (feedbackId: string) => void;
 }
@@ -13,7 +12,6 @@ interface FeedbackTableProps {
 export function FeedbackTable({
   feedback,
   totalCount,
-  createdCases,
   creatingCaseId,
   onCreateCase,
 }: FeedbackTableProps) {
@@ -43,7 +41,7 @@ export function FeedbackTable({
 
           <tbody>
             {feedback.map((item) => {
-              const caseId = createdCases[item.id] ?? item.caseId;
+              const caseId = item.caseId;
 
               return (
                 <tr key={item.id} className="border-t border-gray-100">
