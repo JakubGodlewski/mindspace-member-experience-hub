@@ -40,7 +40,13 @@ describe("MockSalesforceClient", () => {
       expect(result).toEqual({
         id: "",
         success: false,
-        errors: ["REQUIRED_FIELD_MISSING"],
+        errors: [
+          {
+            message: "Required fields are missing: [Subject]",
+            errorCode: "REQUIRED_FIELD_MISSING",
+            fields: ["Subject"],
+          },
+        ],
       });
     });
 
@@ -55,7 +61,13 @@ describe("MockSalesforceClient", () => {
       expect(result).toEqual({
         id: "",
         success: false,
-        errors: ["REQUIRED_FIELD_MISSING"],
+        errors: [
+          {
+            message: "Required fields are missing: [ContactId]",
+            errorCode: "REQUIRED_FIELD_MISSING",
+            fields: ["ContactId"],
+          },
+        ],
       });
     });
   });

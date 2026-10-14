@@ -50,11 +50,22 @@ export class MockSalesforceClient implements SalesforceClient {
   async createCase(
     request: SalesforceCaseCreateRequest
   ): Promise<SalesforceCreateResponse> {
-    if (!request.Subject || !request.ContactId) {
+    const missingFields = [
+      ...(request.Subject ? [] : ["Subject"]),
+      ...(request.ContactId ? [] : ["ContactId"]),
+    ];
+
+    if (missingFields.length > 0) {
       return {
         id: "",
         success: false,
-        errors: ["REQUIRED_FIELD_MISSING"],
+        errors: [
+          {
+            message: `Required fields are missing: [${missingFields.join(", ")}]`,
+            errorCode: "REQUIRED_FIELD_MISSING",
+            fields: missingFields,
+          },
+        ],
       };
     }
 

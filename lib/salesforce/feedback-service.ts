@@ -1,5 +1,20 @@
 
 import { createSalesforceClient } from "./client-factory";
+import type { SalesforceError } from "./types";
+
+function formatSalesforceErrors(errors: SalesforceError[]): string {
+  if (errors.length === 0) {
+    return "Unknown Salesforce error";
+  }
+
+  return errors
+    .map((error) =>
+      error.fields.length > 0
+        ? `${error.message} (${error.errorCode}; fields: ${error.fields.join(", ")})`
+        : `${error.message} (${error.errorCode})`
+    )
+    .join("; ");
+}
 
 export async function createCaseFromFeedback(
   feedbackId: string
@@ -39,7 +54,7 @@ export async function createCaseFromFeedback(
 
   if (!response.success) {
     throw new Error(
-      `SALESFORCE_CREATE_FAILED: ${response.errors.join(", ")}`
+      `SALESFORCE_CREATE_FAILED: ${formatSalesforceErrors(response.errors)}`
     );
   }
 

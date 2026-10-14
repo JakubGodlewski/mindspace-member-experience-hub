@@ -1,22 +1,12 @@
 
 import type {
+  SalesforceCaseCreateRequest,
+  SalesforceCreateResponse,
   SalesforceFeedbackRecord,
   SalesforceQueryResponse,
 } from "./types";
 
-export interface SalesforceCaseCreateRequest {
-  Subject: string;
-  Description: string;
-  Origin: string;
-  Status: string;
-  ContactId: string;
-}
-
-export interface SalesforceCreateResponse {
-  id: string;
-  success: boolean;
-  errors: string[];
-}
+export type { SalesforceCaseCreateRequest, SalesforceCreateResponse };
 
 export interface SalesforceClient {
   queryFeedback(): Promise<

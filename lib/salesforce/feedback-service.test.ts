@@ -103,18 +103,29 @@ describe("createCaseFromFeedback", () => {
     expect(fakeClient.createCase).not.toHaveBeenCalled();
   });
 
-  it("throws SALESFORCE_CREATE_FAILED when Case creation fails", async () => {
+  it("throws SALESFORCE_CREATE_FAILED with formatted error details when Case creation fails", async () => {
     const feedback = buildFeedbackRecord();
     givenFeedback([feedback]);
 
     fakeClient.createCase.mockResolvedValue({
       id: "",
       success: false,
-      errors: ["REQUIRED_FIELD_MISSING"],
+      errors: [
+        {
+          message: "Required fields are missing: [Subject]",
+          errorCode: "REQUIRED_FIELD_MISSING",
+          fields: ["Subject"],
+        },
+        {
+          message: "Operation too large",
+          errorCode: "LIMIT_EXCEEDED",
+          fields: [],
+        },
+      ],
     });
 
     await expect(createCaseFromFeedback(feedback.Id)).rejects.toThrow(
-      "SALESFORCE_CREATE_FAILED: REQUIRED_FIELD_MISSING"
+      "SALESFORCE_CREATE_FAILED: Required fields are missing: [Subject] (REQUIRED_FIELD_MISSING; fields: Subject); Operation too large (LIMIT_EXCEEDED)"
     );
 
     expect(fakeClient.updateFeedbackCase).not.toHaveBeenCalled();

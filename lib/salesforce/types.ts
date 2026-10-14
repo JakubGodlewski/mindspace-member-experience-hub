@@ -51,12 +51,14 @@ export interface SalesforceCaseCreateRequest {
   ContactId: string;
 }
 
+export interface SalesforceError {
+  message: string;
+  errorCode: string;
+  fields: string[];
+}
+
 export interface SalesforceCreateResponse {
   id: string;
   success: boolean;
-  errors: Array<{
-    message: string;
-    errorCode: string;
-    fields: string[];
-  }>;
+  errors: SalesforceError[];
 }
