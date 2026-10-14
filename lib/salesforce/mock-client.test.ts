@@ -5,6 +5,8 @@ let MockSalesforceClient: new () => MockSalesforceClientType;
 
 beforeEach(async () => {
   vi.resetModules();
+  delete (globalThis as { __mockSalesforceStore?: unknown })
+    .__mockSalesforceStore;
   ({ MockSalesforceClient } = await import("./mock-client"));
 });
 

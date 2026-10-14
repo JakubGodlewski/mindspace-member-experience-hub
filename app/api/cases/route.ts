@@ -1,6 +1,7 @@
+import { createCaseFromFeedback } from "@/lib/salesforce/feedback-service";
+
 export async function POST(request: Request) {
   try {
-    const { createCaseFromFeedback } = await import("@/lib/salesforce/feedback-service");
     const body = await request.json();
 
     if (

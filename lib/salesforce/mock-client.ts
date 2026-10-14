@@ -15,23 +15,26 @@ interface MockStore {
   caseCounter: number;
 }
 
-// createSalesforceClient() returns a new instance per call, so the mock
-// state lives at module level and persists for the server process lifetime.
-let store: MockStore | null = null;
+// Store lives on globalThis: in dev, Turbopack re-instantiates modules
+// (HMR, per-route graphs, dynamic import()), which would silently reset
+// plain module-level state. A global survives for the process lifetime.
+const globalForMock = globalThis as unknown as {
+  __mockSalesforceStore?: MockStore;
+};
 
 function getStore(): MockStore {
-  if (!store) {
+  if (!globalForMock.__mockSalesforceStore) {
     const seed = mockResponse as SalesforceQueryResponse<
       SalesforceFeedbackRecord
     >;
 
-    store = {
+    globalForMock.__mockSalesforceStore = {
       feedback: structuredClone(seed.records),
       caseCounter: 0,
     };
   }
 
-  return store;
+  return globalForMock.__mockSalesforceStore;
 }
 
 export class MockSalesforceClient implements SalesforceClient {
