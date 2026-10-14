@@ -26,4 +26,9 @@ export interface SalesforceClient {
   createCase(
     request: SalesforceCaseCreateRequest
   ): Promise<SalesforceCreateResponse>;
+
+  updateFeedbackCase(
+    feedbackId: string,
+    caseId: string
+  ): Promise<void>;
 }

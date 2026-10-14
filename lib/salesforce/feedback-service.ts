@@ -43,6 +43,8 @@ export async function createCaseFromFeedback(
     );
   }
 
+  await client.updateFeedbackCase(feedbackId, response.id);
+
   return {
     feedbackId,
     caseId: response.id,
