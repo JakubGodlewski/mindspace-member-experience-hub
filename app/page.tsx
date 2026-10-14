@@ -18,7 +18,10 @@ export default function Home() {
 
   const [creatingCaseId, setCreatingCaseId] = useState<string | null>(null);
   const [createdCases, setCreatedCases] = useState<Record<string, string>>({});
-  const [message, setMessage] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{
+    type: "success" | "error";
+    text: string;
+  } | null>(null);
 
   useEffect(() => {
     async function loadFeedback() {
@@ -97,7 +100,7 @@ export default function Home() {
 
   async function handleCreateCase(feedbackId: string) {
     setCreatingCaseId(feedbackId);
-    setMessage(null);
+    setNotice(null);
 
     try {
       const response = await fetch("/api/cases", {
@@ -119,11 +122,15 @@ export default function Home() {
         [feedbackId]: result.caseId,
       }));
 
-      setMessage(`Case ${result.caseId} created successfully (mock).`);
+      setNotice({
+        type: "success",
+        text: `Case ${result.caseId} created successfully (mock).`,
+      });
     } catch (err) {
-      setMessage(
-        err instanceof Error ? err.message : "Unexpected error"
-      );
+      setNotice({
+        type: "error",
+        text: err instanceof Error ? err.message : "Unexpected error",
+      });
     } finally {
       setCreatingCaseId(null);
     }
@@ -179,12 +186,16 @@ export default function Home() {
         onRatingChange={setRating}
       />
 
-      {message && (
+      {notice && (
         <div
-          role="status"
-          className="mb-5 rounded-lg border border-gray-200 p-4 text-sm"
+          role={notice.type === "error" ? "alert" : "status"}
+          className={`mb-5 rounded-lg border p-4 text-sm ${
+            notice.type === "error"
+              ? "border-red-200 bg-red-50 text-red-700"
+              : "border-green-200 bg-green-50 text-green-800"
+          }`}
         >
-          {message}
+          {notice.text}
         </div>
       )}
 
@@ -197,8 +208,8 @@ export default function Home() {
       />
 
       <p className="mt-5 text-xs text-gray-500">
-        Demo mode: Salesforce Case creation is simulated.
-        Created Case statuses are stored only in the current browser session.
+        Demo mode: Case creation is simulated by an in-memory mock and resets
+        when the server restarts.
       </p>
     </main>
   );
