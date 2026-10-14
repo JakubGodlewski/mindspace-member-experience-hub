@@ -1,4 +1,6 @@
 
+import { kv } from "@vercel/kv";
+
 import mockResponse from "../mocks/salesforce-feedback-query-response.json";
 import type {
   SalesforceClient,
@@ -15,33 +17,57 @@ interface MockStore {
   caseCounter: number;
 }
 
-// Store lives on globalThis: in dev, Turbopack re-instantiates modules
-// (HMR, per-route graphs, dynamic import()), which would silently reset
-// plain module-level state. A global survives for the process lifetime.
+// Storage backend:
+// - Vercel KV when KV_REST_API_URL is set (Vercel runs route handlers as
+//   separate serverless functions with no shared memory, so in-process
+//   state cannot persist there).
+// - globalThis locally: survives Turbopack module re-instantiation (HMR,
+//   per-route graphs) and keeps local dev zero-config.
+const KV_KEY = "mindspace:mock-salesforce-store";
+const useKv = Boolean(process.env.KV_REST_API_URL);
+
 const globalForMock = globalThis as unknown as {
   __mockSalesforceStore?: MockStore;
 };
 
-function getStore(): MockStore {
-  if (!globalForMock.__mockSalesforceStore) {
-    const seed = mockResponse as SalesforceQueryResponse<
-      SalesforceFeedbackRecord
-    >;
+async function loadStore(): Promise<MockStore> {
+  if (useKv) {
+    const existing = await kv.get<MockStore>(KV_KEY);
 
-    globalForMock.__mockSalesforceStore = {
-      feedback: structuredClone(seed.records),
-      caseCounter: 0,
-    };
+    if (existing) {
+      return existing;
+    }
+  } else if (globalForMock.__mockSalesforceStore) {
+    return globalForMock.__mockSalesforceStore;
   }
 
-  return globalForMock.__mockSalesforceStore;
+  const seed = mockResponse as SalesforceQueryResponse<
+    SalesforceFeedbackRecord
+  >;
+  const store: MockStore = {
+    feedback: structuredClone(seed.records),
+    caseCounter: 0,
+  };
+
+  await saveStore(store);
+
+  return store;
+}
+
+async function saveStore(store: MockStore): Promise<void> {
+  if (useKv) {
+    await kv.set(KV_KEY, store);
+  } else {
+    globalForMock.__mockSalesforceStore = store;
+  }
 }
 
 export class MockSalesforceClient implements SalesforceClient {
   async queryFeedback(): Promise<
     SalesforceQueryResponse<SalesforceFeedbackRecord>
   > {
-    const records = structuredClone(getStore().feedback);
+    const store = await loadStore();
+    const records = structuredClone(store.feedback);
 
     return {
       totalSize: records.length,
@@ -72,11 +98,12 @@ export class MockSalesforceClient implements SalesforceClient {
       };
     }
 
-    const state = getStore();
-    state.caseCounter += 1;
+    const store = await loadStore();
+    store.caseCounter += 1;
+    await saveStore(store);
 
     return {
-      id: `500${String(state.caseCounter).padStart(12, "0")}AAA`,
+      id: `500${String(store.caseCounter).padStart(12, "0")}AAA`,
       success: true,
       errors: [],
     };
@@ -86,8 +113,8 @@ export class MockSalesforceClient implements SalesforceClient {
     feedbackId: string,
     caseId: string
   ): Promise<void> {
-    const state = getStore();
-    const record = state.feedback.find((item) => item.Id === feedbackId);
+    const store = await loadStore();
+    const record = store.feedback.find((item) => item.Id === feedbackId);
 
     if (!record) {
       throw new Error("FEEDBACK_NOT_FOUND");
@@ -99,7 +126,9 @@ export class MockSalesforceClient implements SalesforceClient {
         type: "Case",
         url: `/services/data/v66.0/sobjects/Case/${caseId}`,
       },
-      CaseNumber: String(state.caseCounter).padStart(8, "0"),
+      CaseNumber: String(store.caseCounter).padStart(8, "0"),
     };
+
+    await saveStore(store);
   }
 }

@@ -5,6 +5,8 @@ let MockSalesforceClient: new () => MockSalesforceClientType;
 
 beforeEach(async () => {
   vi.resetModules();
+  // Tests always exercise the in-memory backend, never real KV.
+  delete process.env.KV_REST_API_URL;
   delete (globalThis as { __mockSalesforceStore?: unknown })
     .__mockSalesforceStore;
   ({ MockSalesforceClient } = await import("./mock-client"));
