@@ -7,8 +7,8 @@ beforeEach(async () => {
   vi.resetModules();
   // Tests always exercise the in-memory backend, never real KV.
   delete process.env.KV_REST_API_URL;
-  delete (globalThis as { __mockSalesforceStore?: unknown })
-    .__mockSalesforceStore;
+  delete (globalThis as { __mockSalesforceState?: unknown })
+    .__mockSalesforceState;
   ({ MockSalesforceClient } = await import("./mock-client"));
 });
 
@@ -103,6 +103,23 @@ describe("MockSalesforceClient", () => {
       await expect(
         client.updateFeedbackCase("a01999999999999AAA", "500000000000001AAA")
       ).rejects.toThrow("FEEDBACK_NOT_FOUND");
+    });
+
+    it("rejects a second Case for the same feedback (atomic guard)", async () => {
+      const client = new MockSalesforceClient();
+      const { records } = await client.queryFeedback();
+      const feedbackId = records[0].Id;
+
+      await client.updateFeedbackCase(feedbackId, "500000000000001AAA");
+
+      await expect(
+        client.updateFeedbackCase(feedbackId, "500000000000002AAA")
+      ).rejects.toThrow("CASE_ALREADY_EXISTS");
+
+      const { records: after } = await client.queryFeedback();
+      expect(
+        after.find((r) => r.Id === feedbackId)?.Case__c
+      ).toBe("500000000000001AAA");
     });
   });
 

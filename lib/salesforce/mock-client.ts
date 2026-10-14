@@ -12,62 +12,126 @@ import type {
   SalesforceQueryResponse,
 } from "./types";
 
-interface MockStore {
-  feedback: SalesforceFeedbackRecord[];
-  caseCounter: number;
+interface CaseLink {
+  caseId: string;
+  caseNumber: string;
 }
 
-// Storage backend:
+// The seed records are immutable; the only mutable state is the case
+// counter and the feedbackId -> Case link. Storage backends:
 // - Vercel KV when KV_REST_API_URL is set (Vercel runs route handlers as
-//   separate serverless functions with no shared memory, so in-process
-//   state cannot persist there).
+//   separate serverless functions with no shared memory). Uses atomic
+//   primitives: INCR for unique Case ids and SET NX per feedback record,
+//   so concurrent requests cannot duplicate ids or Cases.
 // - globalThis locally: survives Turbopack module re-instantiation (HMR,
 //   per-route graphs) and keeps local dev zero-config.
-const KV_KEY = "mindspace:mock-salesforce-store";
+const KV_CASE_COUNTER_KEY = "mindspace:mock:case-counter";
+const KV_CASE_LINK_PREFIX = "mindspace:mock:case:";
+
 const useKv = Boolean(process.env.KV_REST_API_URL);
 
+const seedResponse = mockResponse as SalesforceQueryResponse<
+  SalesforceFeedbackRecord
+>;
+
 const globalForMock = globalThis as unknown as {
-  __mockSalesforceStore?: MockStore;
+  __mockSalesforceState?: {
+    caseCounter: number;
+    caseLinks: Record<string, CaseLink>;
+  };
 };
 
-async function loadStore(): Promise<MockStore> {
-  if (useKv) {
-    const existing = await kv.get<MockStore>(KV_KEY);
-
-    if (existing) {
-      return existing;
-    }
-  } else if (globalForMock.__mockSalesforceStore) {
-    return globalForMock.__mockSalesforceStore;
+function getMemoryState() {
+  if (!globalForMock.__mockSalesforceState) {
+    globalForMock.__mockSalesforceState = { caseCounter: 0, caseLinks: {} };
   }
 
-  const seed = mockResponse as SalesforceQueryResponse<
-    SalesforceFeedbackRecord
-  >;
-  const store: MockStore = {
-    feedback: structuredClone(seed.records),
-    caseCounter: 0,
-  };
-
-  await saveStore(store);
-
-  return store;
+  return globalForMock.__mockSalesforceState;
 }
 
-async function saveStore(store: MockStore): Promise<void> {
+function formatCaseId(n: number): string {
+  return `500${String(n).padStart(12, "0")}AAA`;
+}
+
+function caseNumberFromId(caseId: string): string {
+  return String(Number(caseId.slice(3, 15))).padStart(8, "0");
+}
+
+// Atomic counter: Redis INCR server-side, or a synchronous in-memory
+// increment (no await between read and write, so it cannot interleave).
+async function nextCaseId(): Promise<string> {
   if (useKv) {
-    await kv.set(KV_KEY, store);
-  } else {
-    globalForMock.__mockSalesforceStore = store;
+    return formatCaseId(await kv.incr(KV_CASE_COUNTER_KEY));
   }
+
+  const state = getMemoryState();
+  state.caseCounter += 1;
+  return formatCaseId(state.caseCounter);
+}
+
+async function getCaseLinks(): Promise<Record<string, CaseLink>> {
+  if (useKv) {
+    const ids = seedResponse.records.map((record) => record.Id);
+    const values = await kv.mget<(CaseLink | null)[]>(
+      ...ids.map((id) => KV_CASE_LINK_PREFIX + id)
+    );
+
+    const links: Record<string, CaseLink> = {};
+    values.forEach((value, index) => {
+      if (value) {
+        links[ids[index]] = value;
+      }
+    });
+    return links;
+  }
+
+  return { ...getMemoryState().caseLinks };
+}
+
+// Returns false when the feedback already has a Case — an atomic guard
+// against duplicate creation (SET NX / synchronous check-and-set).
+async function trySetCaseLink(
+  feedbackId: string,
+  link: CaseLink
+): Promise<boolean> {
+  if (useKv) {
+    const result = await kv.set(KV_CASE_LINK_PREFIX + feedbackId, link, {
+      nx: true,
+    });
+    return result === "OK";
+  }
+
+  const state = getMemoryState();
+  if (state.caseLinks[feedbackId]) {
+    return false;
+  }
+  state.caseLinks[feedbackId] = link;
+  return true;
 }
 
 export class MockSalesforceClient implements SalesforceClient {
   async queryFeedback(): Promise<
     SalesforceQueryResponse<SalesforceFeedbackRecord>
   > {
-    const store = await loadStore();
-    const records = structuredClone(store.feedback);
+    const links = await getCaseLinks();
+
+    const records = seedResponse.records.map((record) => {
+      const clone = structuredClone(record);
+      const link = links[record.Id];
+
+      if (link) {
+        clone.Case__c = link.caseId;
+        clone.Case__r = {
+          attributes: {
+            type: "Case",
+            url: `/services/data/v66.0/sobjects/Case/${link.caseId}`,
+          },
+          CaseNumber: link.caseNumber,
+        };
+      }
+
+      return clone;
+    });
 
     return {
       totalSize: records.length,
@@ -98,12 +162,8 @@ export class MockSalesforceClient implements SalesforceClient {
       };
     }
 
-    const store = await loadStore();
-    store.caseCounter += 1;
-    await saveStore(store);
-
     return {
-      id: `500${String(store.caseCounter).padStart(12, "0")}AAA`,
+      id: await nextCaseId(),
       success: true,
       errors: [],
     };
@@ -113,22 +173,21 @@ export class MockSalesforceClient implements SalesforceClient {
     feedbackId: string,
     caseId: string
   ): Promise<void> {
-    const store = await loadStore();
-    const record = store.feedback.find((item) => item.Id === feedbackId);
+    const exists = seedResponse.records.some(
+      (record) => record.Id === feedbackId
+    );
 
-    if (!record) {
+    if (!exists) {
       throw new Error("FEEDBACK_NOT_FOUND");
     }
 
-    record.Case__c = caseId;
-    record.Case__r = {
-      attributes: {
-        type: "Case",
-        url: `/services/data/v66.0/sobjects/Case/${caseId}`,
-      },
-      CaseNumber: String(store.caseCounter).padStart(8, "0"),
-    };
+    const created = await trySetCaseLink(feedbackId, {
+      caseId,
+      caseNumber: caseNumberFromId(caseId),
+    });
 
-    await saveStore(store);
+    if (!created) {
+      throw new Error("CASE_ALREADY_EXISTS");
+    }
   }
 }
